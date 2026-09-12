@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.lovetr923.hypr-login-workspaces",
+  "name": "Login Workspace Assignments",
+  "version": "1.0.0",
+  "author": "Trevor",
+  "description": "Pick installed apps and assign each one a Hyprland workspace (or the scratchpad) to launch on login. Generates a plugin-owned Hyprland Lua file you require once.",
+  "kinds": ["panel"],
+  "entryPoints": {
+    "panel": "Panel.qml"
+  }
+}
