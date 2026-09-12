@@ -55,7 +55,10 @@ MAX_DESKTOP_FILES_VISITED = 2000
 MAX_DESKTOP_ENTRIES_RETURNED = 300
 MAX_DESKTOP_FILE_BYTES = 65536
 
-DETECT_DEADLINE_S = 8.0
+# Some real installed apps (Flutter/Electron-style, e.g. BlueBubbles) take
+# well over 8s from process start to first mapped window -- confirmed on
+# this machine, not a theoretical margin.
+DETECT_DEADLINE_S = 20.0
 DETECT_POLL_INTERVAL_S = 0.3
 DETECT_LAUNCH_TIMEOUT_S = 3.0
 DETECT_OUTPUT_CAP = 262144
@@ -135,7 +138,7 @@ def repair_state_dir(dirfd):
     directory this plugin exclusively owns."""
     for name in os.listdir(dirfd):
         try:
-            lst = os.lstat(name, dir_fd=dirfd, follow_symlinks=False)
+            lst = os.lstat(name, dir_fd=dirfd)
         except OSError:
             continue
         if not stat.S_ISREG(lst.st_mode):
@@ -615,6 +618,17 @@ def generate_lua(assignments) -> str:
     return "".join(lines)
 
 
+def _hyprctl_env():
+    # hyprctl needs its compositor socket coordinates to find the right
+    # instance -- non-secret runtime identifiers, not credentials, so
+    # passing them through the otherwise-fixed environment is safe.
+    env = {"PATH": FIXED_PATH}
+    for keep in ("XDG_RUNTIME_DIR", "HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY"):
+        if keep in os.environ:
+            env[keep] = os.environ[keep]
+    return env
+
+
 def run_reload():
     script = os.path.join(plugin_root(), "bin", RELOAD_SCRIPT)
     try:
@@ -623,7 +637,7 @@ def run_reload():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=15,
-            env={"PATH": FIXED_PATH},
+            env=_hyprctl_env(),
         ).stdout
     except (subprocess.TimeoutExpired, OSError) as e:
         return "ERROR:reload script failed to run (%s)" % type(e).__name__
@@ -636,31 +650,35 @@ def run_reload():
 # ---------------------------------------------------------------------------
 
 def _hyprctl_clients():
+    """Returns the client list, or None if hyprctl itself could not be
+    consulted (distinct from an empty list, which means hyprctl ran fine and
+    reported no clients). Conflating the two would silently turn a broken
+    hyprctl call into "no windows yet" and poll uselessly to the deadline."""
     try:
         proc = subprocess.Popen(
             ["/usr/bin/hyprctl", "clients", "-j"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
-            env={"PATH": FIXED_PATH},
+            env=_hyprctl_env(),
         )
     except OSError:
-        return []
+        return None
     try:
         data = proc.stdout.read(DETECT_OUTPUT_CAP + 1)
         proc.wait(timeout=DETECT_LAUNCH_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-        return []
-    if len(data) > DETECT_OUTPUT_CAP:
-        return []
+        return None
+    if proc.returncode != 0 or len(data) > DETECT_OUTPUT_CAP:
+        return None
     try:
         clients = json.loads(data.decode("utf-8", "replace"))
     except json.JSONDecodeError:
-        return []
+        return None
     if not isinstance(clients, list):
-        return []
+        return None
     out = []
     for c in clients[:500]:
         if not isinstance(c, dict):
@@ -678,13 +696,19 @@ def cmd_detect_window(argv_tokens):
     if resolved is None:
         return {"ok": False, "error": "invalid-command"}
 
-    before = {c["address"] for c in _hyprctl_clients()}
+    before_clients = _hyprctl_clients()
+    if before_clients is None:
+        return {"ok": False, "error": "hyprctl-unavailable"}
+    before = {c["address"] for c in before_clients}
 
     env = {
         "HOME": pwd.getpwuid(os.geteuid()).pw_dir,
         "PATH": FIXED_PATH,
     }
-    for keep in ("XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE"):
+    # Non-secret runtime coordinates a launched app or an Omarchy-aware
+    # helper (e.g. omarchy-shell, invoked deep inside Omamail's mailto.sh)
+    # needs to function at all -- none of these are credentials.
+    for keep in ("XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "OMARCHY_PATH"):
         if keep in os.environ:
             env[keep] = os.environ[keep]
 
@@ -697,6 +721,8 @@ def cmd_detect_window(argv_tokens):
     while time.monotonic() < deadline:
         time.sleep(DETECT_POLL_INTERVAL_S)
         clients = _hyprctl_clients()
+        if clients is None:
+            continue  # transient hyprctl hiccup -- keep polling to the deadline
         fresh = [c for c in clients if c["address"] and c["address"] not in before]
         if len(fresh) == 1:
             c = fresh[0]

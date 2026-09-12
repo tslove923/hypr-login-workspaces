@@ -160,9 +160,10 @@ Item {
     }
   }
 
-  // Detect-window can legitimately take up to ~11s inside the helper
-  // (3s launch timeout + 8s poll deadline); give it real headroom before
-  // the QML-side kill timer above would otherwise cut it off at 15s.
+  // Detect-window can legitimately take up to ~23s inside the helper
+  // (3s launch timeout + 20s poll deadline -- some real apps are that slow
+  // to map a window, confirmed with BlueBubbles on this machine); the
+  // QML-side kill timer below gives it real headroom past that.
   function runDetect(args, onDone) {
     detectHelperProc.pendingCallback = onDone
     detectHelperProc.buffer = ""
@@ -205,7 +206,7 @@ Item {
   }
   Timer {
     id: detectKillTimer
-    interval: 20000
+    interval: 30000
     repeat: false
     onTriggered: if (detectHelperProc.running) detectHelperProc.signal(9)
   }
