@@ -105,123 +105,79 @@ Item {
   // Every subcommand prints exactly one bounded JSON document to stdout.
   // Accumulate with a byte cap here too (defense in depth -- the actual
   // bound is enforced inside the helper), never StdioCollector.
-  function runHelper(args, onDone) {
-    helperProc.pendingCallback = onDone
-    helperProc.buffer = ""
-    helperProc.overflowed = false
-    helperProc.command = root.helperCommand(args)
-    helperProc.running = true
-  }
-
-  Process {
-    id: helperProc
+  //
+  // Each operation gets its OWN Process instance (never a shared one): open()
+  // fires refreshApps() and refreshState() back-to-back, and a single shared
+  // Process's `command`/`pendingCallback` would be overwritten by the second
+  // call before the first had even started, silently abandoning the first
+  // callback forever -- which is exactly what left "Loading installed
+  // apps..." stuck permanently. One Process per call site removes the race
+  // instead of papering over one instance of it.
+  component HelperProcess: Process {
+    id: proc
     property var pendingCallback: null
     property string buffer: ""
     property bool overflowed: false
-    readonly property int maxBytes: 1048576
+    property int maxBytes: 1048576
+    property int killAfterMs: 15000
 
     running: false
     stdout: SplitParser {
       splitMarker: ""
       onRead: function(data) {
-        if (helperProc.overflowed) return
-        helperProc.buffer += data
-        if (helperProc.buffer.length > helperProc.maxBytes) {
-          helperProc.overflowed = true
-          helperProc.signal(15)
+        if (proc.overflowed) return
+        proc.buffer += data
+        if (proc.buffer.length > proc.maxBytes) {
+          proc.overflowed = true
+          proc.signal(15)
         }
       }
     }
     onExited: function(exitCode) {
-      var cb = pendingCallback
-      pendingCallback = null
+      var cb = proc.pendingCallback
+      proc.pendingCallback = null
       if (!cb) return
-      if (overflowed) { cb(null, "output too large"); return }
+      if (proc.overflowed) { cb(null, "output too large"); return }
       if (exitCode !== 0) { cb(null, "helper exited with code " + exitCode); return }
       try {
-        cb(JSON.parse(buffer), "")
+        cb(JSON.parse(proc.buffer), "")
       } catch (e) {
         cb(null, "could not parse helper output")
       }
     }
-  }
+    onRunningChanged: {
+      if (running) killTimer.restart()
+      else killTimer.stop()
+    }
 
-  Timer {
-    id: helperKillTimer
-    interval: 15000
-    repeat: false
-    onTriggered: if (helperProc.running) helperProc.signal(9)
-  }
-  Connections {
-    target: helperProc
-    function onRunningChanged() {
-      if (helperProc.running) helperKillTimer.restart()
-      else helperKillTimer.stop()
+    Timer {
+      id: killTimer
+      interval: proc.killAfterMs
+      repeat: false
+      onTriggered: if (proc.running) proc.signal(9)
+    }
+
+    function invoke(args, cb) {
+      proc.pendingCallback = cb
+      proc.buffer = ""
+      proc.overflowed = false
+      proc.command = root.helperCommand(args)
+      proc.running = true
     }
   }
 
+  HelperProcess { id: listAppsProc }
+  HelperProcess { id: readStateProc }
+  HelperProcess { id: saveProc }
   // Detect-window can legitimately take up to ~23s inside the helper
   // (3s launch timeout + 20s poll deadline -- some real apps are that slow
-  // to map a window, confirmed with BlueBubbles on this machine); the
-  // QML-side kill timer below gives it real headroom past that.
-  function runDetect(args, onDone) {
-    detectHelperProc.pendingCallback = onDone
-    detectHelperProc.buffer = ""
-    detectHelperProc.overflowed = false
-    detectHelperProc.command = root.helperCommand(args)
-    detectHelperProc.running = true
-  }
-
-  Process {
-    id: detectHelperProc
-    property var pendingCallback: null
-    property string buffer: ""
-    property bool overflowed: false
-    readonly property int maxBytes: 65536
-
-    running: false
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(data) {
-        if (detectHelperProc.overflowed) return
-        detectHelperProc.buffer += data
-        if (detectHelperProc.buffer.length > detectHelperProc.maxBytes) {
-          detectHelperProc.overflowed = true
-          detectHelperProc.signal(15)
-        }
-      }
-    }
-    onExited: function(exitCode) {
-      var cb = pendingCallback
-      pendingCallback = null
-      if (!cb) return
-      if (overflowed) { cb(null, "output too large"); return }
-      if (exitCode !== 0) { cb(null, "helper exited with code " + exitCode); return }
-      try {
-        cb(JSON.parse(buffer), "")
-      } catch (e) {
-        cb(null, "could not parse helper output")
-      }
-    }
-  }
-  Timer {
-    id: detectKillTimer
-    interval: 30000
-    repeat: false
-    onTriggered: if (detectHelperProc.running) detectHelperProc.signal(9)
-  }
-  Connections {
-    target: detectHelperProc
-    function onRunningChanged() {
-      if (detectHelperProc.running) detectKillTimer.restart()
-      else detectKillTimer.stop()
-    }
-  }
+  // to map a window, confirmed with BlueBubbles on this machine).
+  HelperProcess { id: detectProc; killAfterMs: 30000 }
 
   // ---- actions ------------------------------------------------------------
   function refreshApps() {
     appsLoading = true
-    runHelper(["list-apps"], function(result, err) {
+    listAppsProc.invoke(["list-apps"], function(result, err) {
       appsLoading = false
       if (!result || !result.ok) return
       var choices = []
@@ -241,7 +197,7 @@ Item {
 
   function refreshState() {
     stateLoading = true
-    runHelper(["read-state"], function(result, err) {
+    readStateProc.invoke(["read-state"], function(result, err) {
       stateLoading = false
       if (!result || !result.ok) return
       assignments = result.assignments || []
@@ -253,7 +209,7 @@ Item {
     detecting = true
     detectError = ""
     detectResult = null
-    runDetect(["detect-window"].concat(selectedAppEntry.argv), function(result, err) {
+    detectProc.invoke(["detect-window"].concat(selectedAppEntry.argv), function(result, err) {
       detecting = false
       if (!result) { detectError = "Detection failed to run."; return }
       if (!result.ok) {
@@ -327,7 +283,7 @@ Item {
     saveStatus = "saving"
     saveError = ""
     var payload = JSON.stringify({ schemaVersion: 1, assignments: assignments })
-    runHelper(["save", payload], function(result, err) {
+    saveProc.invoke(["save", payload], function(result, err) {
       if (!result) {
         saveStatus = "error"
         saveError = "Save failed to run."
@@ -378,13 +334,13 @@ Item {
           ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
           Column {
-            // Not `parent.width`: inside a ScrollView, a direct child's
-            // `parent` is the ScrollView's internal content item, not the
-            // visible viewport -- binding to it here creates a width that
-            // collapses toward the content's own implicit size instead of
-            // filling the window, squishing everything left. GalleryPanel.qml
-            // avoids this the same way.
-            width: scrollArea.availableWidth
+            // Bound directly to the window's own width (minus the
+            // ScrollView's margins) rather than `scrollArea.availableWidth`:
+            // the latter should work (GalleryPanel.qml uses it) but depends
+            // on ScrollView's internal scrollbar-visibility computation,
+            // which is one more indirection than necessary. Binding straight
+            // to `window.width` is unambiguous.
+            width: window.width - Style.space(36)
             spacing: Style.space(18)
 
             // ---- Header ----------------------------------------------
