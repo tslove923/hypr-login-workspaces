@@ -113,49 +113,15 @@ Item {
   // callback forever -- which is exactly what left "Loading installed
   // apps..." stuck permanently. One Process per call site removes the race
   // instead of papering over one instance of it.
-  component HelperProcess: Process {
-    id: proc
-    property var pendingCallback: null
-    property string buffer: ""
-    property bool overflowed: false
-    property int maxBytes: 1048576
+  // A plain `Item` wrapper, not `component HelperProcess: Process { ... }`:
+  // `Process` is not Item-derived and declares no default property, so a
+  // Timer nested directly inside one fails to load at all ("Cannot assign
+  // to non-existent default property") -- confirmed live, not theoretical.
+  // Wrapping both in an Item (which does have a default property) lets the
+  // Process and its companion kill Timer sit as ordinary named children.
+  component HelperProcess: Item {
+    id: wrapper
     property int killAfterMs: 15000
-
-    running: false
-    stdout: SplitParser {
-      splitMarker: ""
-      onRead: function(data) {
-        if (proc.overflowed) return
-        proc.buffer += data
-        if (proc.buffer.length > proc.maxBytes) {
-          proc.overflowed = true
-          proc.signal(15)
-        }
-      }
-    }
-    onExited: function(exitCode) {
-      var cb = proc.pendingCallback
-      proc.pendingCallback = null
-      if (!cb) return
-      if (proc.overflowed) { cb(null, "output too large"); return }
-      if (exitCode !== 0) { cb(null, "helper exited with code " + exitCode); return }
-      try {
-        cb(JSON.parse(proc.buffer), "")
-      } catch (e) {
-        cb(null, "could not parse helper output")
-      }
-    }
-    onRunningChanged: {
-      if (running) killTimer.restart()
-      else killTimer.stop()
-    }
-
-    Timer {
-      id: killTimer
-      interval: proc.killAfterMs
-      repeat: false
-      onTriggered: if (proc.running) proc.signal(9)
-    }
 
     function invoke(args, cb) {
       proc.pendingCallback = cb
@@ -163,6 +129,50 @@ Item {
       proc.overflowed = false
       proc.command = root.helperCommand(args)
       proc.running = true
+    }
+
+    Process {
+      id: proc
+      property var pendingCallback: null
+      property string buffer: ""
+      property bool overflowed: false
+      property int maxBytes: 1048576
+
+      running: false
+      stdout: SplitParser {
+        splitMarker: ""
+        onRead: function(data) {
+          if (proc.overflowed) return
+          proc.buffer += data
+          if (proc.buffer.length > proc.maxBytes) {
+            proc.overflowed = true
+            proc.signal(15)
+          }
+        }
+      }
+      onExited: function(exitCode) {
+        var cb = proc.pendingCallback
+        proc.pendingCallback = null
+        if (!cb) return
+        if (proc.overflowed) { cb(null, "output too large"); return }
+        if (exitCode !== 0) { cb(null, "helper exited with code " + exitCode); return }
+        try {
+          cb(JSON.parse(proc.buffer), "")
+        } catch (e) {
+          cb(null, "could not parse helper output")
+        }
+      }
+      onRunningChanged: {
+        if (running) killTimer.restart()
+        else killTimer.stop()
+      }
+    }
+
+    Timer {
+      id: killTimer
+      interval: wrapper.killAfterMs
+      repeat: false
+      onTriggered: if (proc.running) proc.signal(9)
     }
   }
 
