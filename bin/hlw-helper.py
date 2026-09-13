@@ -605,6 +605,25 @@ def generate_lua(assignments) -> str:
             lines.append("-- skipped %r: launch target not found on this machine\n" % a["label"])
             continue
         command = " ".join(shell_quote_single(t) for t in tokens)
+
+        if a.get("matchStrategy") == "herdr-title-prefix":
+            # A persistent title-based o.window rule is unreliable for a
+            # terminal-hosted TUI: the terminal emulator maps its window
+            # with a default/blank title first and only sets the real title
+            # once the TUI inside it starts, by which point Hyprland has
+            # already evaluated the workspace rule once at map time and does
+            # not re-run it for a later title change (confirmed live: the
+            # title matched exactly and it still landed on the wrong
+            # workspace). Omarchy's own qconsole.lua sidesteps the identical
+            # problem for its terminal-hosted TUI with inline bracket-syntax
+            # workspace targeting on the exec itself instead of a persistent
+            # rule -- do the same here rather than emit a rule that looks
+            # correct but does not work.
+            ws = lua_escape(workspace_value(a["workspace"]))
+            lines.append('o.exec_on_start("[workspace %s] uwsm-app -- %s")\n\n'
+                          % (ws, lua_escape(command)))
+            continue
+
         lines.append('o.launch_on_start("%s")\n' % lua_escape(command))
 
         try:
