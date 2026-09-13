@@ -31,7 +31,7 @@ import time
 # Fixed configuration. Never derived from the environment.
 # ---------------------------------------------------------------------------
 
-PLUGIN_ID = "io.github.lovetr923.hypr-login-workspaces"
+PLUGIN_ID = "io.github.tslove923.hypr-login-workspaces"
 STATE_DIR_PARTS = [".local", "state", PLUGIN_ID]
 STATE_FILE = "assignments.json"
 HYPR_DIR_PARTS = [".config", "hypr"]

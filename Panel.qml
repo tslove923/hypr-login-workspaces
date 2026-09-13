@@ -41,7 +41,7 @@ Item {
   }
 
   function requestClose() {
-    if (shell && typeof shell.hide === "function") shell.hide("io.github.lovetr923.hypr-login-workspaces")
+    if (shell && typeof shell.hide === "function") shell.hide("io.github.tslove923.hypr-login-workspaces")
     else window.visible = false
   }
 
@@ -357,7 +357,7 @@ Item {
 
     onVisibleChanged: {
       if (!visible && !root.closingFromHost && root.shell && typeof root.shell.hide === "function")
-        root.shell.hide("io.github.lovetr923.hypr-login-workspaces")
+        root.shell.hide("io.github.tslove923.hypr-login-workspaces")
     }
 
     FocusScope {

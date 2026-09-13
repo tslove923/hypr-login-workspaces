@@ -22,7 +22,7 @@ apps and assigning each one a Hyprland workspace (or the scratchpad) to launch o
 This plugin **never edits** `~/.config/hypr/hyprland.lua`, `autostart.lua`, or `bindings.lua`.
 It only ever writes two files it exclusively owns:
 
-- `~/.local/state/io.github.lovetr923.hypr-login-workspaces/assignments.json` — your saved
+- `~/.local/state/io.github.tslove923.hypr-login-workspaces/assignments.json` — your saved
   assignments.
 - `~/.config/hypr/hypr-login-workspaces.lua` — the generated `o.launch_on_start(...)` /
   `o.window(...)` rules. Regenerated in full on every Save; don't hand-edit it, edit through
@@ -43,7 +43,7 @@ you exactly once, by hand — the plugin will not add or modify this line itself
 ## Opening the panel
 
 ```
-omarchy-shell shell summon io.github.lovetr923.hypr-login-workspaces '{}'
+omarchy-shell shell summon io.github.tslove923.hypr-login-workspaces '{}'
 ```
 
 There is no bar icon; open it with the command above, or bind a key to it yourself, e.g. in
@@ -51,7 +51,7 @@ your own `bindings.lua`:
 
 ```lua
 o.bind("SUPER + SHIFT + W", "Login workspace assignments",
-  "omarchy-shell shell summon io.github.lovetr923.hypr-login-workspaces '{}'")
+  "omarchy-shell shell summon io.github.tslove923.hypr-login-workspaces '{}'")
 ```
 
 ## Known limitation: Herdr matching
@@ -71,7 +71,7 @@ hostname prefix (`^<hostname>: .+$`), leaving the session/workspace name free. T
 
 | File | Written by | Contains |
 |---|---|---|
-| `~/.local/state/io.github.lovetr923.hypr-login-workspaces/assignments.json` | Save | Your assignments: app, launch command, window match, workspace |
+| `~/.local/state/io.github.tslove923.hypr-login-workspaces/assignments.json` | Save | Your assignments: app, launch command, window match, workspace |
 | `~/.config/hypr/hypr-login-workspaces.lua` | Save | Generated `o.launch_on_start`/`o.window` Lua, regenerated in full each time |
 | `~/.config/hypr/hypr-login-workspaces.lua.bak` | Save | Previous version of the file above, kept for rollback |
 
@@ -82,7 +82,7 @@ launch or detect.
 ## Removing
 
 ```
-omarchy plugin remove io.github.lovetr923.hypr-login-workspaces
+omarchy plugin remove io.github.tslove923.hypr-login-workspaces
 ```
 
 This removes the plugin itself. It does **not** delete:
@@ -91,7 +91,7 @@ This removes the plugin itself. It does **not** delete:
   `hyprland.lua`, the `dofile(...)` line you added still points at a file that will keep
   existing with its last-saved rules. Delete both files and remove that line yourself if you
   want a clean removal.
-- `~/.local/state/io.github.lovetr923.hypr-login-workspaces/` — your saved assignments, in
+- `~/.local/state/io.github.tslove923.hypr-login-workspaces/` — your saved assignments, in
   case you reinstall later. Delete it yourself if you don't want it kept.
 
 ## License
