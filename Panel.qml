@@ -371,13 +371,20 @@ Item {
         onCloseRequested: root.requestClose()
 
         ScrollView {
+          id: scrollArea
           anchors.fill: parent
           anchors.margins: Style.space(18)
           clip: true
           ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
           Column {
-            width: parent.width
+            // Not `parent.width`: inside a ScrollView, a direct child's
+            // `parent` is the ScrollView's internal content item, not the
+            // visible viewport -- binding to it here creates a width that
+            // collapses toward the content's own implicit size instead of
+            // filling the window, squishing everything left. GalleryPanel.qml
+            // avoids this the same way.
+            width: scrollArea.availableWidth
             spacing: Style.space(18)
 
             // ---- Header ----------------------------------------------
